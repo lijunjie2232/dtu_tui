@@ -86,3 +86,38 @@ async fn snapshot(st: &Arc<State>) -> View {
     v
 }
 
+/// One user action, applied to the core in this process.
+async fn act(st: &Arc<State>, cmd: Cmd) -> Result<String, String> {
+    match cmd {
+        Cmd::Refresh => Ok(String::new()),
+        Cmd::Scan => {
+            let trust = st.trust.lock().await.clone();
+            let items = discover::scan(st.cfg.port, 1500, &st.id.id, &trust).await;
+            let mut out = format!("{} device(s) answered", items.len());
+            for s in items {
+                out.push_str(&format!(
+                    "\n{} {} {}",
+                    s.id,
+                    s.addr,
+                    if s.trusted { "trusted" } else { "" }
+                ));
+            }
+            Ok(out)
+        }
+        Cmd::NewCode => {
+            st.rotate_code(None).await;
+            let c = st.code.lock().await;
+            Ok(format!("new code {}", c.code))
+        }
+        Cmd::Accept(id) => {
+            let expires_at = cfg::parse_expiry("30d")?;
+            invite::decide(st, &id, Decision::Accept { expires_at }).await?;
+            Ok(format!("accepted invite {id}"))
+        }
+        Cmd::Deny(id) => {
+            invite::decide(st, &id, Decision::Deny).await?;
+            Ok(format!("denied invite {id}"))
+        }
+    }
+}
+

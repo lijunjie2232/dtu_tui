@@ -121,3 +121,26 @@ async fn act(st: &Arc<State>, cmd: Cmd) -> Result<String, String> {
     }
 }
 
+/// Own thread: the UI only ever reads the published `View`.
+fn spawn_worker(st: Arc<State>, view: Arc<Mutex<View>>, rx: Receiver<Cmd>) {
+    std::thread::spawn(move || {
+        let rt = match tokio::runtime::Builder::new_current_thread().enable_all().build() {
+            Ok(rt) => rt,
+            Err(e) => {
+                view.lock().unwrap().note = format!("runtime: {e}");
+                return;
+            }
+        };
+        while let Ok(cmd) = rx.recv() {
+            let note = rt.block_on(act(&st, cmd));
+            let mut fresh = rt.block_on(snapshot(&st));
+            match note {
+                Ok(msg) if !msg.is_empty() => fresh.note = msg,
+                Ok(_) => {}
+                Err(e) => fresh.note = e,
+            }
+            *view.lock().unwrap() = fresh;
+        }
+    });
+}
+

@@ -236,3 +236,58 @@ impl App {
     }
 }
 
+fn draw(f: &mut ratatui::Frame, app: &App, view: &View) {
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Length(3), Constraint::Min(3), Constraint::Length(2)])
+        .split(f.area());
+
+    let titles: Vec<Line> = TABS.iter().map(|t| Line::from(*t)).collect();
+    f.render_widget(
+        Tabs::new(titles)
+            .select(app.tab)
+            .highlight_style(Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD))
+            .block(Block::default().borders(Borders::ALL).title(" dtu ")),
+        chunks[0],
+    );
+
+    let items: Vec<ListItem> = match app.tab {
+        0 => view.status.iter().map(|l| ListItem::new(l.clone())).collect(),
+        1 => view.devices.iter().map(|l| ListItem::new(l.clone())).collect(),
+        2 => view
+            .invites
+            .iter()
+            .map(|i| {
+                ListItem::new(format!(
+                    "{} from {} at {} (wants {})",
+                    i.id, i.from, i.addr, i.expires_at
+                ))
+            })
+            .collect(),
+        _ => view.code.iter().map(|l| ListItem::new(l.clone())).collect(),
+    };
+    let empty = ListItem::new("nothing here yet");
+    let mut state = ListState::default();
+    if app.tab == 2 && !view.invites.is_empty() {
+        state.select(Some(app.sel.min(view.invites.len() - 1)));
+    }
+    let hint = if app.tab == 2 { "up/down, a accept, d deny" } else { "" };
+    f.render_stateful_widget(
+        List::new(if items.is_empty() { vec![empty] } else { items })
+            .highlight_style(Style::default().bg(Color::DarkGray).add_modifier(Modifier::BOLD))
+            .highlight_symbol("> ")
+            .block(Block::default().borders(Borders::ALL).title(format!(" {} {} ", TABS[app.tab], hint))),
+        chunks[1],
+        &mut state,
+    );
+
+    let help = if view.note.is_empty() {
+        "1-4 tab  r refresh  s scan  c new code  q quit".to_string()
+    } else {
+        view.note.lines().last().unwrap_or_default().to_string()
+    };
+    f.render_widget(
+        Paragraph::new(help).block(Block::default().borders(Borders::TOP)),
+        chunks[2],
+    );
+}

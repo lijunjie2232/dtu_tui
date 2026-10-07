@@ -144,3 +144,95 @@ fn spawn_worker(st: Arc<State>, view: Arc<Mutex<View>>, rx: Receiver<Cmd>) {
     });
 }
 
+struct App {
+    view: Arc<Mutex<View>>,
+    tx: Sender<Cmd>,
+    tab: usize,
+    sel: usize,
+    quit: bool,
+}
+
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // This process is the app *and* the server.
+    let daemon = embed::host(cfg::Config::load())?;
+    daemon.wait_ready()?;
+
+    let view = Arc::new(Mutex::new(View::default()));
+    let (tx, rx) = channel();
+    spawn_worker(daemon.state.clone(), view.clone(), rx);
+    let _ = tx.send(Cmd::Refresh);
+
+    enable_raw_mode()?;
+    let mut out = std::io::stdout();
+    execute!(out, EnterAlternateScreen)?;
+    let mut terminal = Terminal::new(CrosstermBackend::new(out))?;
+
+    let mut app = App { view, tx, tab: 0, sel: 0, quit: false };
+    let mut last = Instant::now();
+    while !app.quit {
+        let snapshot = app.view.lock().expect("view lock").clone();
+        terminal.draw(|f| draw(f, &app, &snapshot))?;
+
+        if event::poll(Duration::from_millis(200))? {
+            if let Event::Key(KeyEvent { code, kind, .. }) = event::read()? {
+                if kind == KeyEventKind::Press {
+                    app.on_key(code);
+                }
+            }
+        }
+        if last.elapsed() >= REFRESH {
+            let _ = app.tx.send(Cmd::Refresh);
+            last = Instant::now();
+        }
+    }
+
+    disable_raw_mode()?;
+    execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
+    terminal.show_cursor()?;
+    // Leaving the app stops the services it was hosting.
+    daemon.stop();
+    Ok(())
+}
+
+impl App {
+    fn on_key(&mut self, code: KeyCode) {
+        let invites = self.view.lock().expect("view lock").invites.len();
+        match code {
+            KeyCode::Char('q') | KeyCode::Esc => self.quit = true,
+            KeyCode::Char('1') => self.tab = 0,
+            KeyCode::Char('2') => self.tab = 1,
+            KeyCode::Char('3') => self.tab = 2,
+            KeyCode::Char('4') => self.tab = 3,
+            KeyCode::Tab | KeyCode::Right => self.tab = (self.tab + 1) % TABS.len(),
+            KeyCode::BackTab | KeyCode::Left => self.tab = (self.tab + TABS.len() - 1) % TABS.len(),
+            KeyCode::Down => self.sel = (self.sel + 1).min(invites.saturating_sub(1)),
+            KeyCode::Up => self.sel = self.sel.saturating_sub(1),
+            KeyCode::Char('r') => {
+                let _ = self.tx.send(Cmd::Refresh);
+            }
+            KeyCode::Char('s') => {
+                let _ = self.tx.send(Cmd::Scan);
+            }
+            KeyCode::Char('c') => {
+                let _ = self.tx.send(Cmd::NewCode);
+            }
+            KeyCode::Char('a') => {
+                if let Some(inv) = self.selected_invite() {
+                    let _ = self.tx.send(Cmd::Accept(inv));
+                }
+            }
+            KeyCode::Char('d') => {
+                if let Some(inv) = self.selected_invite() {
+                    let _ = self.tx.send(Cmd::Deny(inv));
+                }
+            }
+            _ => {}
+        }
+    }
+
+    fn selected_invite(&self) -> Option<String> {
+        let view = self.view.lock().ok()?;
+        view.invites.get(self.sel).map(|i| i.id.clone())
+    }
+}
+

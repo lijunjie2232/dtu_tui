@@ -24,8 +24,10 @@ use ratatui::text::Line;
 use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph, Tabs};
 use ratatui::Terminal;
 
-const TABS: [&str; 4] = ["status", "devices", "invites", "code"];
-const REFRESH: Duration = Duration::from_secs(2);
+const TABS: [&str; 6] = ["status", "devices", "invites", "code", "log", "settings"];
+/// What the log tab shows; `None` is everything.
+const FILTERS: [(&str, Option<&str>); 4] =
+    [("all", None), ("auth", Some("auth")), ("files", Some("file")), ("invites", Some("invite"))];
 
 #[derive(Default, Clone)]
 struct View {
@@ -173,6 +175,12 @@ struct App {
     tx: Sender<Cmd>,
     tab: usize,
     sel: usize,
+    /// Index into `FILTERS`, used by the log tab.
+    filter: usize,
+    /// Row picked on the settings tab.
+    setting: usize,
+    /// `(key, buffer)` while a setting is being edited.
+    editing: Option<(String, String)>,
     quit: bool,
 }
 
@@ -223,17 +231,63 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 impl App {
     fn on_key(&mut self, code: KeyCode) {
-        let invites = self.view.lock().expect("view lock").invites.len();
+        // While a setting is being typed, every key belongs to the buffer.
+        if let Some((key, mut buf)) = self.editing.take() {
+            match code {
+                KeyCode::Esc => return,
+                KeyCode::Enter => {
+                    let _ = self.tx.send(Cmd::SetConfig { key, value: buf });
+                }
+                KeyCode::Backspace => {
+                    buf.pop();
+                    self.editing = Some((key, buf));
+                }
+                KeyCode::Char(c) => {
+                    buf.push(c);
+                    self.editing = Some((key, buf));
+                }
+                _ => self.editing = Some((key, buf)),
+            }
+            return;
+        }
+
+        let (invites, settings) = {
+            let v = self.view.lock().expect("view lock");
+            (v.invites.len(), v.settings.clone())
+        };
         match code {
-            KeyCode::Char('q') | KeyCode::Esc => self.quit = true,
+            KeyCode::Char('q') => self.quit = true,
+            KeyCode::Esc => self.quit = true,
             KeyCode::Char('1') => self.tab = 0,
             KeyCode::Char('2') => self.tab = 1,
             KeyCode::Char('3') => self.tab = 2,
             KeyCode::Char('4') => self.tab = 3,
+            KeyCode::Char('5') => self.tab = 4,
+            KeyCode::Char('6') => self.tab = 5,
             KeyCode::Tab | KeyCode::Right => self.tab = (self.tab + 1) % TABS.len(),
             KeyCode::BackTab | KeyCode::Left => self.tab = (self.tab + TABS.len() - 1) % TABS.len(),
-            KeyCode::Down => self.sel = (self.sel + 1).min(invites.saturating_sub(1)),
-            KeyCode::Up => self.sel = self.sel.saturating_sub(1),
+            KeyCode::Down => match self.tab {
+                2 => self.sel = (self.sel + 1).min(invites.saturating_sub(1)),
+                5 => self.setting = (self.setting + 1).min(settings.len().saturating_sub(1)),
+                _ => {}
+            },
+            KeyCode::Up => match self.tab {
+                2 => self.sel = self.sel.saturating_sub(1),
+                5 => self.setting = self.setting.saturating_sub(1),
+                _ => {}
+            },
+            KeyCode::Enter if self.tab == 5 => {
+                let Some((key, value)) = settings.get(self.setting).cloned() else { return };
+                let is_bool = cfg::field(&key).is_some_and(|f| f.kind == cfg::Kind::Bool);
+                if is_bool {
+                    // a boolean has nothing to type: flip it
+                    let next = if value == "true" { "false" } else { "true" };
+                    let _ = self.tx.send(Cmd::SetConfig { key, value: next.to_string() });
+                } else {
+                    let buf = if value == "null" { String::new() } else { value };
+                    self.editing = Some((key, buf));
+                }
+            }
             KeyCode::Char('r') => {
                 let _ = self.tx.send(Cmd::Refresh);
             }
@@ -243,6 +297,7 @@ impl App {
             KeyCode::Char('c') => {
                 let _ = self.tx.send(Cmd::NewCode);
             }
+            KeyCode::Char('f') => self.filter = (self.filter + 1) % FILTERS.len(),
             KeyCode::Char('a') => {
                 if let Some(inv) = self.selected_invite() {
                     let _ = self.tx.send(Cmd::Accept(inv));
@@ -291,27 +346,69 @@ fn draw(f: &mut ratatui::Frame, app: &App, view: &View) {
                 ))
             })
             .collect(),
-        _ => view.code.iter().map(|l| ListItem::new(l.clone())).collect(),
+        3 => view.code.iter().map(|l| ListItem::new(l.clone())).collect(),
+        4 => {
+            let keep = FILTERS[app.filter.min(FILTERS.len() - 1)].1;
+            view.logs
+                .iter()
+                .filter(|e| keep.is_none_or(|k| e.event == k))
+                .map(|e| ListItem::new(e.line()))
+                .collect()
+        }
+        _ => view
+            .settings
+            .iter()
+            .map(|(key, value)| {
+                let f = cfg::field(key);
+                let when = match f {
+                    Some(f) if f.restart => "next start",
+                    _ => "live",
+                };
+                let shown = match &app.editing {
+                    Some((editing, buf)) if editing == key => format!("{buf}█"),
+                    _ => value.clone(),
+                };
+                ListItem::new(format!(
+                    "{key:<22} {shown:<24} {when:<10} {}",
+                    f.map(|f| f.help).unwrap_or("")
+                ))
+            })
+            .collect(),
     };
     let empty = ListItem::new("nothing here yet");
     let mut state = ListState::default();
     if app.tab == 2 && !view.invites.is_empty() {
         state.select(Some(app.sel.min(view.invites.len() - 1)));
     }
-    let hint = if app.tab == 2 { "up/down, a accept, d deny" } else { "" };
+    if app.tab == 5 && !view.settings.is_empty() {
+        state.select(Some(app.setting.min(view.settings.len() - 1)));
+    }
+    let hint = match app.tab {
+        2 => "up/down, a accept, d deny",
+        4 => "f filter",
+        5 => "up/down, enter edit/toggle",
+        _ => "",
+    };
+    let title = if app.tab == 4 {
+        format!(" log ({}) {hint} ", FILTERS[app.filter.min(FILTERS.len() - 1)].0)
+    } else {
+        format!(" {} {hint} ", TABS[app.tab])
+    };
     f.render_stateful_widget(
         List::new(if items.is_empty() { vec![empty] } else { items })
             .highlight_style(Style::default().bg(Color::DarkGray).add_modifier(Modifier::BOLD))
             .highlight_symbol("> ")
-            .block(Block::default().borders(Borders::ALL).title(format!(" {} {} ", TABS[app.tab], hint))),
+            .block(Block::default().borders(Borders::ALL).title(title)),
         chunks[1],
         &mut state,
     );
 
-    let help = if view.note.is_empty() {
-        "1-4 tab  r refresh  s scan  c new code  q quit".to_string()
-    } else {
+    let help = if let Some((key, buf)) = &app.editing {
+        format!("{key} = {buf}█   enter save · esc cancel")
+    } else if !view.note.is_empty() {
         view.note.lines().last().unwrap_or_default().to_string()
+    } else {
+        format!("1-{} tab  r refresh  s scan  c new code  f filter  q quit", TABS.len())
     };
     f.render_widget(
         Paragraph::new(help).block(Block::default().borders(Borders::TOP)),

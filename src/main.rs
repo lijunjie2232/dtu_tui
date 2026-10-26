@@ -157,7 +157,7 @@ fn spawn_worker(st: Arc<State>, view: Arc<Mutex<View>>, rx: Receiver<Cmd>, log_l
         };
         while let Ok(cmd) = rx.recv() {
             let note = rt.block_on(act(&st, cmd));
-            let mut fresh = rt.block_on(snapshot(&st));
+            let mut fresh = rt.block_on(snapshot(&st, log_lines));
             match note {
                 Ok(msg) if !msg.is_empty() => fresh.note = msg,
                 Ok(_) => {}
@@ -180,10 +180,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // This process is the app *and* the server.
     let daemon = embed::host(cfg::Config::load())?;
     daemon.wait_ready()?;
+    let startup = daemon.state.cfg.clone();
+    let refresh = Duration::from_secs(if startup.ui_refresh_secs > 0 { startup.ui_refresh_secs } else { 2 });
+    let log_lines = if startup.ui_log_lines > 0 { startup.ui_log_lines } else { 500 };
 
     let view = Arc::new(Mutex::new(View::default()));
     let (tx, rx) = channel();
-    spawn_worker(daemon.state.clone(), view.clone(), rx);
+    spawn_worker(daemon.state.clone(), view.clone(), rx, log_lines);
     let _ = tx.send(Cmd::Refresh);
 
     enable_raw_mode()?;
@@ -191,7 +194,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     execute!(out, EnterAlternateScreen)?;
     let mut terminal = Terminal::new(CrosstermBackend::new(out))?;
 
-    let mut app = App { view, tx, tab: 0, sel: 0, quit: false };
+    let mut app = App { view, tx, tab: 0, sel: 0, filter: 0, setting: 0, editing: None, quit: false };
     let mut last = Instant::now();
     while !app.quit {
         let snapshot = app.view.lock().expect("view lock").clone();
@@ -204,7 +207,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             }
         }
-        if last.elapsed() >= REFRESH {
+        if last.elapsed() >= refresh {
             let _ = app.tx.send(Cmd::Refresh);
             last = Instant::now();
         }

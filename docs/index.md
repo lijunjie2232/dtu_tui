@@ -32,17 +32,21 @@ cargo build --release
 | devices | 信頼済みデバイス（別名・アドレス・有効期限、期限切れは `[expired]`） | — |
 | invites | 承認待ちの招待 | `↑↓` 選択、`a` 承認、`d` 拒否 |
 | code | ワンタイムのペアリングコードと状態 | `c` 再生成 |
+| log | 認証と、実際に動いたファイル（相手 ID・IP・パス・サイズ） | `f` で絞り込み（all / auth / files / invites） |
+| settings | config.json の全項目（ポート、ルート、並列、信頼まわり、UI 更新間隔…） | `↑↓` 選択、`enter` で編集（bool は切替） |
 
 ## キー
 
 | キー | 動作 |
 | --- | --- |
-| `1` … `4` / `tab` / `←` `→` | タブ切り替え |
+| `1` … `6` / `tab` / `←` `→` | タブ切り替え |
 | `↑` `↓` | 一覧の選択 |
 | `r` | 再読み込み（2 秒ごとの自動更新とは別に即時反映） |
 | `s` | LAN を探索（1.5 秒待つ） |
 | `c` | ペアリングコードを再生成 |
 | `a` / `d` | 選択中の招待を承認（30 日） / 拒否 |
+| `f` | log タブの表示を切り替え（all → auth → files → invites） |
+| `enter` | settings タブで編集を開始（bool はその場で切替） |
 | `q` / `Esc` | 終了 |
 
 ## ペアリングの流れ
@@ -54,6 +58,23 @@ cargo build --release
 5. 以降は `dtu push nas ./file` で送れる
 
 招待はデバイス ID とアドレスだけを持ちます。中身（ファイル）は承認後にしか流れません。
+
+## 設定（settings タブ）
+
+`config.json` の全項目をその場で編集できます。行は `key / 現在値 / 反映時期 / 説明` の順。
+`live` の項目（`code_password`）は保存と同時に動いているリスナーへ反映、`next start` の項目（ポート・ルート・各種タイムアウトなど）は次回起動からです。
+
+| キー | 既定 | 内容 |
+| --- | --- | --- |
+| `port` | 47000 | 待ち受け／探索のポート |
+| `api_port` | 0 | REST の loopback ポート（0 = port + 1） |
+| `root` | `<データディレクトリ>/share` | 相手に見せるディレクトリ |
+| `parallel` | 4 | 1 ファイルを何本の TCP で送るか |
+| `unlimit` | false | 危険：全接続を受け入れる |
+| `code_password` | （なし） | コードに追加するパスワード（空で解除） |
+| `ui_close_to_tray` | true | GUI 用：ウィンドウを閉じたらトレイに残す |
+
+`dtu config fields`（CLI）で全項目の一覧と説明を確認できます。
 
 ## 受け取り
 
@@ -77,3 +98,4 @@ MkDocs（Material + static-i18n）で生成し、`main` への push で GitHub P
 pip install -r requirements-docs.txt
 mkdocs serve
 ```
+

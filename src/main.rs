@@ -47,10 +47,11 @@ enum Cmd {
     NewCode,
     Accept(String),
     Deny(String),
+    SetConfig { key: String, value: String },
 }
 
 /// Read everything the screen shows straight out of the live core state.
-async fn snapshot(st: &Arc<State>) -> View {
+async fn snapshot(st: &Arc<State>, log_lines: usize) -> View {
     let mut v = View {
         status: vec![
             format!("device   {}", st.id.id),
@@ -128,11 +129,24 @@ async fn act(st: &Arc<State>, cmd: Cmd) -> Result<String, String> {
             invite::decide(st, &id, Decision::Deny).await?;
             Ok(format!("denied invite {id}"))
         }
+        Cmd::SetConfig { key, value } => {
+            let mut cfg = cfg::Config::load();
+            cfg.set(&key, &value)?;
+            cfg.save().map_err(|e| format!("save config: {e}"))?;
+            if cfg::applies_live(&key) {
+                st.apply_live(&cfg).await;
+            }
+            Ok(if cfg::applies_live(&key) {
+                format!("{key} = {value}")
+            } else {
+                format!("{key} = {value} (applies on the next start)")
+            })
+        }
     }
 }
 
 /// Own thread: the UI only ever reads the published `View`.
-fn spawn_worker(st: Arc<State>, view: Arc<Mutex<View>>, rx: Receiver<Cmd>) {
+fn spawn_worker(st: Arc<State>, view: Arc<Mutex<View>>, rx: Receiver<Cmd>, log_lines: usize) {
     std::thread::spawn(move || {
         let rt = match tokio::runtime::Builder::new_current_thread().enable_all().build() {
             Ok(rt) => rt,

@@ -33,6 +33,10 @@ struct View {
     devices: Vec<String>,
     invites: Vec<InviteView>,
     code: Vec<String>,
+    /// Audit log: who authenticated, and which files moved.
+    logs: Vec<dtu_core::audit::Entry>,
+    /// Every setting as (key, current value), straight from config.json.
+    settings: Vec<(String, String)>,
     /// Last action result.
     note: String,
 }
@@ -83,6 +87,12 @@ async fn snapshot(st: &Arc<State>) -> View {
         format!("password {}", if c.password.is_some() { "required" } else { "not set" }),
         format!("state    {}", if c.consumed { "consumed (refresh to reuse)" } else { "fresh" }),
     ];
+    v.logs = dtu_core::audit::entries(None, log_lines);
+    let cfg = cfg::Config::load();
+    v.settings = cfg::fields()
+        .iter()
+        .map(|f| (f.key.to_string(), cfg.get(f.key).unwrap_or_default()))
+        .collect();
     v
 }
 

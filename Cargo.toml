@@ -9,7 +9,7 @@ name = "dtu-tui"
 path = "src/main.rs"
 
 [dependencies]
-dtu_core = { path = "../dtu_core" }
+dtu_core = { git = "https://github.com/lijunjie2232/dtu_core.git", tag = "v0.1.2" }
 tokio = { version = "1", features = ["rt", "macros", "time", "sync"] }
 ratatui = "0.29"
 crossterm = "0.28"

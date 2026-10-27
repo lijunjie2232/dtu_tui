@@ -24,17 +24,21 @@ cargo build --release
 | devices | trusted devices (alias, address, expiry) |
 | invites | pending invitations — **a** accepts, **d** denies |
 | code | the one-time pairing code — **c** rotates it |
+| log | who authenticated, and which files moved (peer, address, path, size) — **f** filters |
+| settings | every key of config.json (ports, root, parallelism, trust, UI refresh…) editable in place |
 
 ## Keys
 
 | Key | Action |
 | --- | --- |
-| `1` … `4` / `tab` / `←→` | switch tab |
+| `1` … `6` / `tab` / `←→` | switch tab |
 | `↑` `↓` | move the selection |
 | `r` | reload |
 | `s` | scan the LAN |
 | `c` | new pairing code |
+| `f` | cycle the log filter (all / auth / files / invites) |
 | `a` / `d` | accept / deny the selected invitation |
+| `enter` | edit the selected setting (bools toggle in place) |
 | `q` / `Esc` | quit (services stop too) |
 
 It refreshes every two seconds. Files sent to you land in the `share` directory while the window stays open.

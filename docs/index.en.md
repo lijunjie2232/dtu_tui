@@ -32,17 +32,21 @@ cargo build --release
 | devices | trusted devices (alias, address, expiry; expired ones say `[expired]`) | — |
 | invites | pending invitations | `↑↓` select, `a` accept, `d` deny |
 | code | the one-time pairing code and its state | `c` rotate |
+| log | who authenticated, and which files moved (peer, address, path, size) | `f` filters (all / auth / files / invites) |
+| settings | every key of config.json (ports, root, parallel, trust, UI refresh…) | `↑↓` select, `enter` edits (bools toggle) |
 
 ## Keys
 
 | Key | Action |
 | --- | --- |
-| `1` … `4` / `tab` / `←` `→` | switch tab |
+| `1` … `6` / `tab` / `←` `→` | switch tab |
 | `↑` `↓` | move the selection |
 | `r` | reload now (on top of the 2 s auto refresh) |
 | `s` | scan the LAN (waits 1.5 s) |
 | `c` | rotate the pairing code |
 | `a` / `d` | accept (30 days) / deny the selected invitation |
+| `f` | cycle the log filter (all → auth → files → invites) |
+| `enter` | start editing the selected setting (bools toggle in place) |
 | `q` / `Esc` | quit |
 
 ## Pairing flow
@@ -54,6 +58,24 @@ cargo build --release
 5. From then on `dtu push nas ./file` works
 
 An invitation carries only a device id and an address; no file data moves before you accept.
+
+## Settings tab
+
+Every key of `config.json` is editable in place. A row reads `key / current value / when / help`.
+`live` rows (`code_password`) reach the running listener on save; `next start` rows (port, root,
+timeouts…) are read once at startup.
+
+| Key | Default | Meaning |
+| --- | --- | --- |
+| `port` | 47000 | listener and discovery port |
+| `api_port` | 0 | REST loopback port (0 = port + 1) |
+| `root` | `<data dir>/share` | directory shown to peers |
+| `parallel` | 4 | TCP streams per file |
+| `unlimit` | false | DANGEROUS: accept any device |
+| `code_password` | none | extra password on the code (empty clears) |
+| `ui_close_to_tray` | true | GUI only: closing its window parks the app in the tray |
+
+`dtu config fields` (CLI) lists every key with the same help text.
 
 ## Receiving
 

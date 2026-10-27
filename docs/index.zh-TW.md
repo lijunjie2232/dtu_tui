@@ -32,17 +32,21 @@ cargo build --release
 | devices | 已信任裝置（別名、位址、到期時間；過期顯示 `[expired]`） | — |
 | invites | 待批准邀請 | `↑↓` 選取、`a` 批准、`d` 拒絕 |
 | code | 一次性配對碼與狀態 | `c` 重新產生 |
+| log | 誰通過認證、以及真正搬動過的檔案（對端、位址、路徑、大小） | `f` 切換篩選（all / auth / files / invites） |
+| settings | config.json 的全部鍵（埠、根目錄、平行、信任、UI 更新間隔…） | `↑↓` 選取、`enter` 編輯（bool 直接切換） |
 
 ## 按鍵
 
 | 按鍵 | 動作 |
 | --- | --- |
-| `1` … `4` / `tab` / `←` `→` | 切換分頁 |
+| `1` … `6` / `tab` / `←` `→` | 切換分頁 |
 | `↑` `↓` | 移動選取 |
 | `r` | 立即重新讀取（另有每 2 秒自動更新） |
 | `s` | 掃描區網（等 1.5 秒） |
 | `c` | 重新產生配對碼 |
 | `a` / `d` | 批准（30 天） / 拒絕選取的邀請 |
+| `f` | 循環 log 分頁的篩選（all → auth → files → invites） |
+| `enter` | settings 分頁開始編輯（bool 直接切換） |
 | `q` / `Esc` | 離開 |
 
 ## 配對流程
@@ -54,6 +58,23 @@ cargo build --release
 5. 之後 `dtu push nas ./file` 就能用
 
 邀請只帶裝置 ID 與位址，批准之前不會有任何檔案內容流動。
+
+## 設定（settings 分頁）
+
+`config.json` 的每個鍵都能就地編輯，每列是 `key / 目前值 / 生效時機 / 說明`。
+`live`（`code_password`）存檔後立即套用到正在運行的監聽端；`next start`（埠、根目錄、各種逾時…）要等下次啟動。
+
+| 鍵 | 預設 | 說明 |
+| --- | --- | --- |
+| `port` | 47000 | 監聽與探索的埠 |
+| `api_port` | 0 | REST 的 loopback 埠（0 = port + 1） |
+| `root` | `<資料目錄>/share` | 對外分享的目錄 |
+| `parallel` | 4 | 每個檔案用幾條 TCP |
+| `unlimit` | false | 危險：接受任何裝置 |
+| `code_password` | 無 | 配對碼的額外密碼（清空即解除） |
+| `ui_close_to_tray` | true | 僅 GUI：關掉視窗就縮到系統匣 |
+
+`dtu config fields`（CLI）可列出同樣的說明。
 
 ## 接收
 

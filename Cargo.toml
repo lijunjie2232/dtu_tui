@@ -1,6 +1,6 @@
 [package]
 name = "dtu_tui"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 description = "dtu terminal UI: status, devices, invitations and the pairing code"
 
